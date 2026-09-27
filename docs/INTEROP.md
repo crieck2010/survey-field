@@ -12,7 +12,7 @@ or uses the adapters in `field/adapters.py`, which return **plain data**
 {
   "format": "survey-field/job",
   "schema_version": 1,
-  "generator": "survey-field 0.1.0",
+  "generator": "survey-field 0.2.0",
   "project": {
     "name": "...", "crs": "NAD83(2011) / UTM zone 18N",
     "source_files": ["day1.csv"],
@@ -48,6 +48,50 @@ Conventions the consumer can rely on:
 - `solution` ∈ `FIX | FLOAT | SINGLE | UNKNOWN`.
 - Points with no usable coordinates never occur without a `no-position`
   validation **error**; duplicates without a `duplicate-name` error.
+
+## CRS reprojection provenance (`field import --target-crs`, v0.2.0)
+
+A geographic-CS export can be reprojected into a projected CRS at import
+time via the optional survey-crs engine (`field/reproject.py`, lazy import).
+The job file keeps schema v1: the provenance block is an **additive optional**
+`crs_provenance` object on the project dict, so v1 files (no such key) still
+read everywhere.
+
+```jsonc
+"crs_provenance": {
+  "source_crs": {"name": "WGS 84", "epsg": 4326, "datum": "WGS 84 (G2296)",
+                 "unit": "deg", "as_recorded_in_csv": "WGS 84"},
+  "target_crs": {"name": "NAD83(2011) / New York Long Island (ftUS)",
+                 "epsg": 6539, "datum": "NAD83(2011)", "unit": "ftUS"},
+  "transform": {
+    "applied": true, "n_points": 3,
+    "survey_crs_version": "0.1.0", "backend": "internal",
+    "datum_path": {"from_datum": "WGS 84 (G2296)", "to_datum": "NAD83(2011)",
+                   "method": "null-approximation", "accuracy_horizontal_m": 2.0,
+                   "region": "CONUS", "source": "Penn State GEOG 862 ...",
+                   "warning": "Approximate identity shift (<=~2 m ...) ..."},
+    "warnings": ["datum: Approximate identity shift (<=~2 m horizontal ...)"],
+    "timestamp": "2026-09-26T22:31:00+00:00"
+  },
+  "notes": ["reprojected 3 point(s) from WGS 84 (EPSG:4326) to ..."]
+}
+```
+
+Behaviour matrix (conservative v1 rules):
+
+| CSV | `--target-crs` | result |
+|---|---|---|
+| geographic | absent | unchanged (lat/lon only) |
+| geographic | present | points transformed; easting/northing filled; project CRS = target |
+| projected | absent | unchanged |
+| projected | same EPSG | no-op, informational note, `transform.applied: false` |
+| projected | different EPSG | **loud refusal** (exit 1, no job file written) |
+| projected | unresolvable source CS name | **loud refusal** (target cannot be verified) |
+
+Datum-shift warnings from `TransformResult.warnings` are printed as
+`crs warning:` lines in the import report and stored in
+`transform.warnings`. Inter-datum results are survey-crs null
+approximations — never present them as survey control.
 
 ## Handoff A — survey-cogo (drafting / inverses / traverses)
 

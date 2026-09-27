@@ -8,8 +8,31 @@ downstream consumer (adjustment workflow, COGO drafting, desktop app):
     {
       "format": "survey-field/job",
       "schema_version": 1,
-      "generator": "survey-field 0.1.0",
+      "generator": "survey-field 0.2.0",
       "project": { ... Project.to_dict() ... }
+    }
+
+When the import ran with ``--target-crs``, the project dict carries an
+additional additive ``crs_provenance`` block (schema stays v1; v1 files
+simply omit it and still read):
+
+.. code-block:: json
+
+    "crs_provenance": {
+      "source_crs": {"name": "WGS 84", "epsg": 4326, "datum": "WGS 84 (G2296)",
+                     "unit": "deg", "as_recorded_in_csv": "WGS 84"},
+      "target_crs": {"name": "NAD83(2011) / New York Long Island (ftUS)",
+                     "epsg": 6539, "datum": "NAD83(2011)", "unit": "ftUS"},
+      "transform": {
+        "applied": true, "n_points": 3,
+        "survey_crs_version": "0.1.0", "backend": "internal",
+        "datum_path": {"from_datum": "WGS 84 (G2296)", "to_datum": "NAD83(2011)",
+                       "method": "null-approximation", "accuracy_horizontal_m": 2.0,
+                       "region": "CONUS", "source": "...", "warning": "..."},
+        "warnings": ["datum: Approximate identity shift (<=~2 m horizontal ...)"],
+        "timestamp": "2026-09-26T22:31:00+00:00"
+      },
+      "notes": ["reprojected 3 point(s) from ..."]
     }
 
 Schema changes bump ``schema_version``; readers reject newer versions they do

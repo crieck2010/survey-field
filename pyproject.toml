@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "survey-field"
-version = "0.1.0"
+version = "0.2.0"
 description = "Field-data import engine for the land-surveying suite: Emlid Flow CSV to canonical job model"
 readme = "README.md"
 license = { text = "MIT" }

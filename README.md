@@ -11,6 +11,7 @@ This is build #1 of the SurveySuite desktop product (import → adjustment workf
 - **Validation** — errors for duplicate point names, position-less points, and RTK points with no base record; warnings for FLOAT/SINGLE solutions, RMS over threshold, missing rover antenna height, high PDOP, long baselines, few averaged samples. All thresholds configurable
 - **Downstream adapters** — plain-data handoffs shaped for `survey-cogo` (`cogo.Point` kwargs) and `survey-adjust` (`fixed={...}` datum + `DiffObservation` kwargs). Exact call shapes in `docs/INTEROP.md`
 - **CLI** — `field import` a CSV to a job file, `field inspect` a job, `field export` a job back to CSV/JSON
+- **Optional CRS reprojection** — `field import --target-crs "New York Long Island (ftUS)"` reprojects a geographic-CS export into a projected CRS on import via the optional survey-crs engine, with full datum-path provenance recorded in the job file
 - **Imperial handling** — antenna heights exported in feet are converted to metres on import
 
 ## Installation
@@ -36,6 +37,60 @@ field inspect demo.sfield.json --issues
 # Export the points back out as a flat CSV
 field export demo.sfield.json -o points.csv --format csv
 ```
+
+## Reprojecting on import (`--target-crs`)
+
+Emlid Flow can export in a **geographic** coordinate system (longitude/latitude
+columns only, no easting/northing). `field import --target-crs` reprojects such
+an export into a projected CRS during import, using the optional
+[survey-crs](https://github.com/crieck2010/survey-crs) engine (pure stdlib,
+345-entry EPSG registry, lazy import — the rest of survey-field works without
+it).
+
+```bash
+# New York workflow: Emlid geographic export -> NY SPCS Long Island (ftUS)
+field import day1_geo.csv -o day1.sfield.json \
+    --target-crs "New York Long Island (ftUS)"
+# --target-crs also accepts EPSG codes: EPSG:6539, 6539
+```
+
+What happens:
+
+- Every point's longitude/latitude is transformed into the target CRS;
+  **easting/northing are filled in**, the project CRS is set to the target's
+  registry name, and a `crs_provenance` block is recorded in the job file
+  (source CRS, target CRS, survey-crs version, backend, datum-path method +
+  accuracy + warnings, timestamp). `field inspect` shows the block.
+- RMS, solution status, antenna height, and timing metadata are untouched.
+- Datum-shift warnings from survey-crs (e.g. the NAD83(2011) ↔ WGS 84
+  ~2 m null approximation) are printed as `crs warning:` lines in the import
+  report — never use a shifted coordinate as survey control without reading
+  them.
+- `--target-crs` without survey-crs installed fails cleanly with a
+  `pip install survey-crs` message (no traceback).
+
+Conservative v1 rules:
+
+| CSV | `--target-crs` | Result |
+|---|---|---|
+| geographic | none | unchanged: lat/lon only, as in v0.1.0 |
+| geographic | given | reprojected; easting/northing filled, provenance recorded |
+| projected | none | unchanged |
+| projected | same CRS | no-op with an informational note (provenance records `applied: false`) |
+| projected | different CRS | **loud refusal** — projected→projected transforms are not done in v1; re-export in the target CRS or a geographic CS |
+
+Notes:
+
+- Base-station coordinates are **not** reprojected in v0.2.0; they keep their
+  as-logged values (documented limitation).
+- The survey-crs registry carries NAD83(2011) SPCS, WGS 84 UTM, and geographic
+  entries — legacy NAD83(1986) codes like EPSG:2263 are **not** registered, so
+  `--target-crs EPSG:2263` fails with a pointer to its NAD83(2011) equivalent
+  EPSG:6539. Never substitute the datum blindly: NAD83(1986) vs NAD83(2011)
+  differ by ~1 m.
+- Reprojected points flow straight into the existing adapters:
+  `to_cogo_kwargs` now returns coordinates for them (they have projected
+  positions), and `to_adjust_control` / `to_adjust_observations` are unchanged.
 
 ```python
 from field.emlid import import_emlid_csv
@@ -125,7 +180,7 @@ pip install pytest
 python -m pytest
 ```
 
-38 tests: all three Emlid CSV dialects plus the PENZD template, feet→metre conversion, base/session grouping, every validation rule, job-file round-trips and schema rejection, adapter shapes, and end-to-end CLI runs.
+55 tests: all three Emlid CSV dialects plus the PENZD template, feet→metre conversion, base/session grouping, every validation rule, job-file round-trips and schema rejection, adapter shapes, `--target-crs` reprojection (oracle-checked against survey-crs published coordinates, mismatch refusal, provenance block, v1 backward compatibility, missing-backend error), and end-to-end CLI runs.
 
 ## Project structure
 
@@ -136,6 +191,7 @@ survey-field/
 │   ├── __main__.py      # python -m field
 │   ├── models.py        # Project / BaseStation / RoverSession / SurveyPoint
 │   ├── emlid.py         # header-driven Emlid Flow / ReachView 3 CSV parser
+│   ├── reproject.py     # optional --target-crs reprojection (survey-crs backend, lazy)
 │   ├── validate.py      # errors + warnings with configurable thresholds
 │   ├── jobfile.py       # versioned survey-field/job JSON interchange
 │   ├── adapters.py      # plain-data handoffs for survey-cogo / survey-adjust

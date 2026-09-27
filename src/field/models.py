@@ -141,6 +141,10 @@ class Project:
     source_files: List[str] = dc_field(default_factory=list)
     base_stations: List[BaseStation] = dc_field(default_factory=list)
     sessions: List[RoverSession] = dc_field(default_factory=list)
+    # CRS provenance from `field import --target-crs` (additive, schema v1):
+    # {"source_crs": {...}, "target_crs": {...}, "transform": {...}, "notes": [...]}.
+    # None when the import ran without --target-crs; v1 job files omit the key.
+    crs_provenance: Optional[Dict[str, Any]] = None
 
     def iter_points(self) -> Iterator[SurveyPoint]:
         for session in self.sessions:
@@ -156,13 +160,18 @@ class Project:
         return None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "name": self.name,
             "crs": self.crs,
             "source_files": list(self.source_files),
             "base_stations": [b.to_dict() for b in self.base_stations],
             "sessions": [s.to_dict() for s in self.sessions],
         }
+        # Additive: omitted entirely when unset so no-flag imports write
+        # byte-identical v0.1.0 job files.
+        if self.crs_provenance is not None:
+            d["crs_provenance"] = self.crs_provenance
+        return d
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Project":
@@ -172,4 +181,5 @@ class Project:
             source_files=list(d.get("source_files", [])),
             base_stations=[BaseStation.from_dict(b) for b in d.get("base_stations", [])],
             sessions=[RoverSession.from_dict(s) for s in d.get("sessions", [])],
+            crs_provenance=d.get("crs_provenance"),
         )

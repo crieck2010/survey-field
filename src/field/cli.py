@@ -20,6 +20,7 @@ from . import __version__
 from .adapters import job_summary
 from .emlid import import_emlid_csv
 from .jobfile import read_job, write_job
+from .reproject import CrsReprojectError, reproject_project
 from .validate import has_errors, validate_project
 
 
@@ -29,6 +30,18 @@ def _cmd_import(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    crs_notes = []
+    crs_warnings = []
+    if args.target_crs:
+        # Optional survey-crs backend; failures refuse loudly before anything
+        # is written (no job file on a CRS refusal).
+        try:
+            report = reproject_project(project, args.target_crs)
+        except CrsReprojectError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        crs_notes = report.notes
+        crs_warnings = report.warnings
     issues = validate_project(
         project,
         rms_lateral_warn=args.rms_lateral,
@@ -45,6 +58,12 @@ def _cmd_import(args: argparse.Namespace) -> int:
     print(f"solutions: " + ", ".join(
         f"{k}={v}" for k, v in sorted(summary["solutions"].items())))
     print(f"wrote   : {args.output}")
+    for note in crs_notes:
+        print(f"crs note: {note}")
+    for warning in crs_warnings:
+        # Datum-shift / area-of-use warnings from survey-crs are surfaced
+        # here in the import report, never buried in the job file alone.
+        print(f"crs warning: {warning}")
     for issue in issues:
         print(str(issue), file=sys.stderr if issue.severity == "error" else sys.stdout)
     n_err = sum(1 for i in issues if i.severity == "error")
@@ -63,6 +82,28 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     print(f"project : {summary['name']}")
     print(f"crs     : {summary['crs'] or '(not recorded)'}")
     print(f"source  : {', '.join(project.source_files) or '(unknown)'}")
+    prov = project.crs_provenance
+    if prov:
+        src = prov.get("source_crs", {})
+        tgt = prov.get("target_crs", {})
+        tr = prov.get("transform", {})
+        dp = tr.get("datum_path", {})
+        print("crs provenance:")
+        as_rec = src.get("as_recorded_in_csv")
+        suffix = f"  [as recorded: {as_rec!r}]" if as_rec not in (None, src.get("name")) else ""
+        print(f"  source   : {src.get('name', '?')} (EPSG:{src.get('epsg', '?')}){suffix}")
+        print(f"  target   : {tgt.get('name', '?')} (EPSG:{tgt.get('epsg', '?')})")
+        status = (f"applied to {tr.get('n_points')} point(s)"
+                  if tr.get("applied") else "not applied (already in target CRS)")
+        print(f"  transform: {status} via survey-crs {tr.get('survey_crs_version', '?')} "
+              f"(backend: {tr.get('backend', '?')}) at {tr.get('timestamp', '?')}")
+        print(f"  datum    : {dp.get('from_datum', '?')} -> {dp.get('to_datum', '?')} "
+              f"[{dp.get('method', '?')}, ~{dp.get('accuracy_horizontal_m', '?')} m horizontal, "
+              f"{dp.get('region', '?')}]")
+        for w in tr.get("warnings", []):
+            print(f"  warning  : {w}")
+        for note in prov.get("notes", []):
+            print(f"  note     : {note}")
     print(f"bases   : {summary['n_base_stations']}")
     for base in project.base_stations:
         pos = (f"E {base.easting} N {base.northing} EL {base.elevation}"
@@ -136,6 +177,13 @@ def build_parser() -> argparse.ArgumentParser:
                           help="PDOP warning threshold (default 6.0)")
     p_import.add_argument("--max-baseline", type=float, default=20.0,
                           help="baseline warning threshold, km (default 20)")
+    p_import.add_argument("--target-crs", default=None, metavar="CRS",
+                          help="reproject a geographic-CS export into this CRS on import: "
+                               "an EPSG code ('EPSG:6539', '6539') or a survey-crs registry "
+                               "name ('New York Long Island (ftUS)'). Requires the optional "
+                               "survey-crs package (pip install survey-crs). Projected-CS "
+                               "exports are only accepted when they already match the target; "
+                               "a different projected CRS is refused, never silently mixed.")
     p_import.set_defaults(func=_cmd_import)
 
     p_inspect = sub.add_parser("inspect", help="summarise a job file")
