@@ -1,3 +1,7 @@
+> [!IMPORTANT]
+> **Consolidated into [SurveySuite](https://github.com/crieck2010/survey-suite)**  
+> This engine has been consolidated into the unified [SurveySuite monorepo](https://github.com/crieck2010/survey-suite). Active development, bug fixes, releases, and unified testing now live in `survey-suite`. This repository is preserved as an archive.
+
 # survey-field
 
 A pure-Python, dependency-free **field-data import engine** for the land-surveying suite: Emlid Flow / ReachView 3 CSV exports in, validated canonical survey jobs out.
@@ -209,3 +213,4 @@ survey-field/
 - Parsing is header-driven, never positional: new Emlid columns degrade to `meta`, never to misread coordinates.
 - The engine never touches the network or the disk except through `import_emlid_csv` / `jobfile` / the CLI; everything else is pure in-memory data.
 - FLOAT/SINGLE points are imported and flagged, never silently dropped or silently "fixed".
+
